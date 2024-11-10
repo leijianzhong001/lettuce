@@ -20,7 +20,11 @@
 package io.lettuce.examples;
 
 import io.lettuce.core.RedisClient;
+import io.lettuce.core.RedisFuture;
 import io.lettuce.core.api.StatefulRedisConnection;
+import io.lettuce.core.api.async.RedisAsyncCommands;
+import io.lettuce.core.resource.ClientResources;
+import io.lettuce.core.resource.DefaultClientResources;
 
 /**
  * @author Mark Paluch
@@ -30,15 +34,24 @@ public class ConnectToRedis {
 
     public static void main(String[] args) {
 
-        // Syntax: redis://[password@]host[:port][/databaseNumber]
-        // Syntax: redis://[username:password@]host[:port][/databaseNumber]
-        RedisClient redisClient = RedisClient.create("redis://password@localhost:6379/0");
+        // 自定义IO线程数量为1，因为多了也用不了
+        ClientResources clientResources = DefaultClientResources.builder()
+                .ioThreadPoolSize(1)
+                .build();
+        // 多个客户端共享一个ClientResources，这样每个客户端的IO线程数量都可以保持在1
+        RedisClient redisClient = RedisClient.create(clientResources, "redis://10.243.7.12:6379/0");
+        // 每次 connect，都会创建一个Bootstrap，然后创建一个Channel，然后连接到Redis, 所以前面要保持IO线程为1个，否则就会浪费
         StatefulRedisConnection<String, String> connection = redisClient.connect();
-
+        // RedisAsyncCommandsImpl对象，内部包含了连接等信息
+        RedisAsyncCommands<String, String> async = connection.async();
+        RedisFuture<String> key = async.set("key", "Hello, Redis!");
+        key.thenAccept(value -> System.out.println("key: " + value));
         System.out.println("Connected to Redis");
 
         connection.close();
         redisClient.shutdown();
+        // 注意共享的ClientResources在应用停止时是需要主动关闭的
+        clientResources.shutdown();
     }
 
 }

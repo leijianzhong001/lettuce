@@ -94,6 +94,9 @@ public class StringCodec implements RedisCodec<String, String>, ToByteBufEncoder
         }
     }
 
+    /**
+     * key和value分开编解码的用意在于 `key`和`value`可以相互独立编码，这意味着`key`可以是一个`java.lang.String`，而值是一个`byte[]`。
+     */
     @Override
     public void encodeKey(String key, ByteBuf target) {
         encode(key, target);

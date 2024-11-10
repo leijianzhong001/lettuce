@@ -117,16 +117,24 @@ public class Command<K, V, T> implements RedisCommand<K, V, T> {
      * @param buf Buffer to write to.
      */
     public void encode(ByteBuf buf) {
-
+        // touch方法可以记录ByteBuf对象的当前访问位置，以及添加用于调试的任意附加信息。
+        // 如果确定此ByteBuf对象被泄露，则此操作记录的信息将通过{@link ResourceLeakDetector}提供给用户。
         buf.touch("Command.encode(…)");
+
+        // resp协议的命令格式为：*<number of arguments>\r\n$<number of bytes of argument 1>\r\n<argument data>\r\n
+        // 例如：SET key value江北表达为：*3\r\n$3\r\nSET\r\n$3\r\nkey\r\n$5\r\nvalue\r\n
+
+        // 1、写入数组长度， 也即是参数的个数
         buf.writeByte('*');
         CommandArgs.IntegerArgument.writeInteger(buf, 1 + (args != null ? args.count() : 0));
 
         buf.writeBytes(CommandArgs.CRLF);
 
+        // 2、写入具体的命令，比如 SET
         CommandArgs.BytesArgument.writeBytes(buf, type.getBytes());
 
         if (args != null) {
+            // 3、写入命令参数
             args.encode(buf);
         }
     }

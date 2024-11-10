@@ -54,16 +54,22 @@ class FutureSyncInvocationHandler extends AbstractInvocationHandler {
         this.connection = connection;
         this.timeoutProvider = new TimeoutProvider(() -> connection.getOptions().getTimeoutOptions(),
                 () -> connection.getTimeout().toNanos());
+        // 是 StatefulRedisConnectionImpl.async对象，其实现是 RedisAsyncCommandsImpl
         this.asyncApi = asyncApi;
+        // 可以认为这是一个缓存，缓存了内容为原始方法->代理对象方法的映射，这样就避免了每次调用都要去遍历一遍被代理对象的方法列表
         this.translator = MethodTranslator.of(asyncApi.getClass(), interfaces);
     }
 
     @Override
     protected Object handleInvocation(Object proxy, Method method, Object[] args) throws Throwable {
-
+        // proxy:　 - 指代我们所代理的那个真实对象,其实就是异步 api RedisAsyncCommandsImpl
+        // method:　- 指代的是我们所要调用真实对象的某个方法的Method对象
+        // args:　　- 指代的是调用真实对象某个方法时接受的参数
         try {
 
+            // 获取到需要执行的代理对象方法（异步api中的响应方法）
             Method targetMethod = this.translator.get(method);
+            // 执行方法调用
             Object result = targetMethod.invoke(asyncApi, args);
 
             if (result instanceof RedisFuture<?>) {
@@ -73,9 +79,9 @@ class FutureSyncInvocationHandler extends AbstractInvocationHandler {
                 if (!isTxControlMethod(method.getName(), args) && isTransactionActive(connection)) {
                     return null;
                 }
-
+                // 获取超时时间
                 long timeout = getTimeoutNs(command);
-
+                // 在这里异步转同步，阻塞等待结果
                 return Futures.awaitOrCancel(command, timeout, TimeUnit.NANOSECONDS);
             }
 

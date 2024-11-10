@@ -202,6 +202,7 @@ public class RedisClient extends AbstractRedisClient {
      * @return A new stateful Redis connection
      */
     public StatefulRedisConnection<String, String> connect() {
+        // StringCodec.UTF8 是一个编解码器，用于将字符串按照UTF-8编码为ByteBuf(netty)，或者将ByteBuffer（java nio）按照UTF-8解码为字符串
         return connect(newStringStringCodec());
     }
 
@@ -215,8 +216,12 @@ public class RedisClient extends AbstractRedisClient {
      */
     public <K, V> StatefulRedisConnection<K, V> connect(RedisCodec<K, V> codec) {
 
+        // 对RedisURI进行非空检查
         checkForRedisURI();
 
+        // connectStandaloneAsync是一个异步操作，返回一个ConnectionFuture
+        // getConnection异步转同步
+        // 主要的创建连接的业务逻辑在connectStandaloneAsync中
         return getConnection(connectStandaloneAsync(codec, this.redisURI, getDefaultTimeout()));
     }
 
@@ -268,6 +273,9 @@ public class RedisClient extends AbstractRedisClient {
         return transformAsyncConnectionException(connectStandaloneAsync(codec, redisURI, redisURI.getTimeout()));
     }
 
+    /**
+     * 当前方法是一个异步方法，返回一个ConnectionFuture
+     */
     private <K, V> ConnectionFuture<StatefulRedisConnection<K, V>> connectStandaloneAsync(RedisCodec<K, V> codec,
             RedisURI redisURI, Duration timeout) {
 
@@ -276,9 +284,12 @@ public class RedisClient extends AbstractRedisClient {
 
         logger.debug("Trying to get a Redis connection for: {}", redisURI);
 
+        // redis命令的实际写出是通过这个组件的
         DefaultEndpoint endpoint = new DefaultEndpoint(getOptions(), getResources());
+        // redis命令最终会通过这个writer发送到redis服务器
         RedisChannelWriter writer = endpoint;
 
+        // 默认的ClientOptions有超时配置，所以走这里
         if (CommandExpiryWriter.isSupported(getOptions())) {
             writer = new CommandExpiryWriter(writer, getOptions(), getResources());
         }
@@ -287,6 +298,9 @@ public class RedisClient extends AbstractRedisClient {
             writer = new CommandListenerWriter(writer, getCommandListeners());
         }
 
+        // Lettuce 4.0引入了`StatefulConnection`接口，将连接资源与特定API分开。这使得连接可以同时运行多个不同的API。
+        // 连接上的每个API都在一个保持状态（认证、事务/多状态、选定数据库、只读/读写状态）的有状态连接上运行。这个状态在连接重新连接后被恢复。
+        // 创建成功的channel最后实际上会给到endpoint
         StatefulRedisConnectionImpl<K, V> connection = newStatefulRedisConnection(writer, endpoint, codec, timeout);
         ConnectionFuture<StatefulRedisConnection<K, V>> future = connectStatefulAsync(connection, endpoint, redisURI,
                 () -> new CommandHandler(getOptions(), getResources(), endpoint));
@@ -294,6 +308,7 @@ public class RedisClient extends AbstractRedisClient {
         future.whenComplete((channelHandler, throwable) -> {
 
             if (throwable != null) {
+                // 如果在future完成时发现有异常，则关闭连接，防止泄漏
                 connection.closeAsync();
             }
         });
@@ -323,11 +338,15 @@ public class RedisClient extends AbstractRedisClient {
         connectionBuilder.clientResources(getResources());
         connectionBuilder.commandHandler(commandHandlerSupplier).endpoint(endpoint);
 
+        // 1、这个方法非常重要，主要就是创建并配置了Netty客户端的 Bootstrap 对象
         connectionBuilder(getSocketAddressSupplier(redisURI), connectionBuilder, connection.getConnectionEvents(), redisURI);
+        // ConnectionInitialize 组件用来初始化连接以供使用。ConnectionInitialize.initialize 该方法在建立传输连接之后，在连接用于用户空间命令之前被调用。
         connectionBuilder.connectionInitializer(createHandshake(state));
 
         ConnectionFuture<RedisChannelHandler<K, V>> future = initializeChannelAsync(connectionBuilder);
 
+        // future.thenApply会返回一个新的future，这个新的future的get()结果就是 StatefulRedisConnectionImpl 对象，此时应该是一个已经创建好的连接了
+        // thenApply 方法的参数是上个future的结果，上个future的结果就是 StatefulRedisConnectionImpl 连接对象
         return future.thenApply(channelHandler -> (S) connection);
     }
 
@@ -691,16 +710,19 @@ public class RedisClient extends AbstractRedisClient {
      * @see RedisURI#getSentinelMasterId()
      */
     protected Mono<SocketAddress> getSocketAddress(RedisURI redisURI) {
-
+        // 和Mono.just类似，只不过 Mono.just会在声明阶段构造元素对象，并且只创建一次。
+        // 但是Mono.defer却是在subscribe阶段才会创建对应的Date对象，每次调用`subscribe`方法都会创建元素对象
         return Mono.defer(() -> {
 
             if (redisURI.getSentinelMasterId() != null && !redisURI.getSentinels().isEmpty()) {
+                // sentinel 模式
                 logger.debug("Connecting to Redis using Sentinels {}, MasterId {}", redisURI.getSentinels(),
                         redisURI.getSentinelMasterId());
                 return lookupRedis(redisURI).switchIfEmpty(Mono.error(new RedisConnectionException(
                         "Cannot provide redisAddress using sentinel for masterId " + redisURI.getSentinelMasterId())));
 
             } else {
+                // 从callable中创建个一个Mono。所以最终的订阅者收到的元素也是一个Mono，而不是SocketAddress对象
                 return Mono.fromCallable(() -> getResources().socketAddressResolver().resolve((redisURI)));
             }
         });
@@ -734,6 +756,7 @@ public class RedisClient extends AbstractRedisClient {
         }
     }
 
+    // 返回一个Mono, 订阅者可以通过订阅该Mono来获取SocketAddress对象
     private Mono<SocketAddress> getSocketAddressSupplier(RedisURI redisURI) {
         return getSocketAddress(redisURI).doOnNext(addr -> logger.debug("Resolved SocketAddress {} using {}", addr, redisURI));
     }

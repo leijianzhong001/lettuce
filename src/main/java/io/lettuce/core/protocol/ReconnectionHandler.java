@@ -93,6 +93,7 @@ class ReconnectionHandler {
         CompletableFuture<Channel> future = new CompletableFuture<>();
         CompletableFuture<SocketAddress> address = new CompletableFuture<>();
 
+        // 这个Mono是通过defer方法定义的，所以可以在每次订阅的时候重新获取SocketAddress
         socketAddressSupplier.subscribe(remoteAddress -> {
 
             address.complete(remoteAddress);

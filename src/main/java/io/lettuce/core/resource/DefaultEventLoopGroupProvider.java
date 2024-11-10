@@ -215,11 +215,19 @@ public class DefaultEventLoopGroupProvider implements EventLoopGroupProvider {
 
         logger.debug("Creating executor {}", type.getName());
 
+        // 创建用于执行计算任务的线程池 EventExecutorGroup 时会走这个分支，如果不指定computationThreadPoolSize参数，则默认为当前cpu的数量
         if (DefaultEventExecutorGroup.class.equals(type)) {
+            // 通常 `ChannelPipeline `中的每一个 `ChannelHandler `都是通过它的 `EventLoop`（ I/O 线程）来处理传递给它的事件的。
+            // 所以至关重要的是不要阻塞这个线程，因为这会对整体的 I/O 处理产生负面的影响。但有时可能需要与那些使用阻塞 `API `的遗留代码进行交互。
+            // 对于这种情况， `ChannelPipeline `有一些接受一个 `EventExecutorGroup `的 `add()`方法。
+            // 如果一个事件被传递给一个自定义的 `EventExecutor-Group`，它将被包含在这个 `EventExecutorGroup` 中的某个 `EventExecutor `所处理，
+            // 从而被从该`Channel `本身的 `EventLoop `中移除。对于这种用例， `Netty `提供了一个叫 `DefaultEventExecutorGroup `的默认实现。
             return new DefaultEventExecutorGroup(numberOfThreads,
                     factoryProvider.getThreadFactory("lettuce-eventExecutorLoop"));
         }
 
+        // 创建用于执行redis io操作的线程池，默认情况下走这个分支，直接new一个NioEventLoopGroup对象。 并且直接在这里设置了线程工厂以及线程的名称
+        // 还是一个分厂重要的信息是这里设置了NioEventLoopGroup的线程数，这个值是在DefaultEventLoopGroupProvider中传入的，默认是当前CPU的数量
         if (NioEventLoopGroup.class.equals(type)) {
             return new NioEventLoopGroup(numberOfThreads, factoryProvider.getThreadFactory("lettuce-nioEventLoop"));
         }
@@ -233,6 +241,7 @@ public class DefaultEventLoopGroupProvider implements EventLoopGroupProvider {
             }
         }
 
+        // 开启本地化的情况下，会走下面这些分支
         if (KqueueProvider.isAvailable()) {
 
             EventLoopResources resources = KqueueProvider.getResources();

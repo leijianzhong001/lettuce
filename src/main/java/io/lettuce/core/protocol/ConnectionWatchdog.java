@@ -156,6 +156,7 @@ public class ConnectionWatchdog extends ChannelInboundHandlerAdapter {
                     return Mono.just(remoteAddress);
                 });
 
+        // 实际用于重连的操作在这个handler中
         this.reconnectionHandler = new ReconnectionHandler(clientOptions, bootstrap, wrappedSocketAddressSupplier, timer,
                 reconnectWorkers, connectionFacade);
 
@@ -242,6 +243,7 @@ public class ConnectionWatchdog extends ChannelInboundHandlerAdapter {
 
             attempts++;
             final int attempt = attempts;
+            // 计算延迟多长时间之后重连
             Duration delay = reconnectDelay.createDelay(attempt);
             int timeout = (int) delay.toMillis();
             logger.debug("{} Reconnect attempt {}, delay {}ms", logPrefix(), attempt, timeout);
@@ -255,6 +257,7 @@ public class ConnectionWatchdog extends ChannelInboundHandlerAdapter {
                     return;
                 }
 
+                // 2、使用计算线程池调度一个重连任务
                 reconnectWorkers.submit(() -> {
                     ConnectionWatchdog.this.run(attempt, delay);
                     return null;

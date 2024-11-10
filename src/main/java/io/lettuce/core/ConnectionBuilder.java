@@ -73,6 +73,7 @@ public class ConnectionBuilder {
 
     private ConnectionEvents connectionEvents;
 
+    // 这个连接就是我们通过Client.connect()得到的StatefulRedisConnectionImpl对象
     private RedisChannelHandler<?, ?> connection;
 
     private Endpoint endpoint;
@@ -124,16 +125,27 @@ public class ConnectionBuilder {
 
         List<ChannelHandler> handlers = new ArrayList<>();
 
+        // 这个连接就是我们通过Client.connect()得到的StatefulRedisConnectionImpl对象
         connection.setOptions(clientOptions);
-
+        // 入站handler: 这是一个简单的handler，用于将channel添加到channelGroup中，或者在断开连接时从channelGroup中移除channel
         handlers.add(new ChannelGroupListener(channelGroup, clientResources.eventBus()));
+        // 出站handler: 将 RedisCommand 编码为ByteBuf对象以进行网络传输，是一个 MessageToByteEncoder
         handlers.add(new CommandEncoder());
+        // 入站handler: 在Channel进入活动状态时，会调用connectionInitializer初始化这个连接，主要包括：
+        // 1.1、ping命令检测连通性；
+        // 1.2、select 命令选择数据库；
+        // 1.3、client setname 命令设置客户端名称；
+        // 1.4、client setinfo 命令设置客户端库的名称和版本
         handlers.add(getHandshakeHandler());
+        // commandHandlerSupplier 的实现是在 RedisClient.connectStandaloneAsync 中, 实际实现是CommandHandler这个类。
+        // 入站出站handler：CommandHandler 这个类会在channelActive的时候，将channel交给DefaultEndpoint, 这样我们所有的写出命令操作都会通过 DefaultEndpoint 进行
         handlers.add(commandHandlerSupplier.get());
 
+        // 入站handler: 用于在各个环节向事件总线发送事件
         handlers.add(new ConnectionEventTrigger(connectionEvents, connection, clientResources.eventBus()));
 
         if (clientOptions.isAutoReconnect()) {
+            // 入站handler: 如果开启了自动重连，那么就会创建一个ConnectionWatchdog对象，用于监听连接状态，在连接失败的时候进行重连。该配置默认是打开的
             handlers.add(createConnectionWatchdog());
         }
 
@@ -164,6 +176,7 @@ public class ConnectionBuilder {
     }
 
     public ChannelInitializer<Channel> build(SocketAddress socketAddress) {
+        // PlainChannelInitializer中的initChannel实现会使用buildHandlers指定的handler列表初始化channel
         return new PlainChannelInitializer(this::buildHandlers, clientResources);
     }
 
@@ -249,26 +262,32 @@ public class ConnectionBuilder {
         LettuceAssert.assertState(bootstrap != null, "Bootstrap must be set");
         LettuceAssert.assertState(clientOptions != null, "ClientOptions must be set");
 
+        // 如果没开启native的话，就是 NioEventLoopGroup
         Class<? extends EventLoopGroup> eventLoopGroupClass = Transports.eventLoopGroupClass();
 
+        // 如果没开启native的话，就是NioSocketChannel
         Class<? extends Channel> channelClass = Transports.socketChannelClass();
 
         if (domainSocket) {
-
+            // 如果打开了unix域套接字
             Transports.NativeTransports.assertDomainSocketAvailable();
             eventLoopGroupClass = Transports.NativeTransports.eventLoopGroupClass(true);
             channelClass = Transports.NativeTransports.domainSocketChannelClass();
         } else {
+            // 1、设置域名解析器，如果指定的redis地址是一个主机名或者域名的话，可能需要通过域名解析器解析
             bootstrap.resolver(clientResources.addressResolverGroup());
         }
 
+        // 从ClientOptions中获取SocketOptions
         SocketOptions options = clientOptions.getSocketOptions();
+        // NioEventLoopGroup
         EventLoopGroup eventLoopGroup = eventLoopGroupProvider.apply(eventLoopGroupClass);
 
+        // 2、设置Socket的超时时间
         bootstrap.option(ChannelOption.CONNECT_TIMEOUT_MILLIS, Math.toIntExact(options.getConnectTimeout().toMillis()));
 
         if (!domainSocket) {
-
+            // 3、根据clientOptions中的定义，设置是否关闭tcp心跳检测，是否关闭nagle算法，默认情况下这两个都是关的
             bootstrap.option(ChannelOption.SO_KEEPALIVE, options.isKeepAlive());
             bootstrap.option(ChannelOption.TCP_NODELAY, options.isTcpNoDelay());
 
@@ -286,6 +305,8 @@ public class ConnectionBuilder {
             }
         }
 
+        // 4、设置channel的实现为NioSocketChannel，
+        // 5、设置eventLoopGroup为前面创建的NioEventLoopGroup
         bootstrap.channel(channelClass).group(eventLoopGroup);
 
         if (options.isKeepAlive() && options.isExtendedKeepAlive()) {

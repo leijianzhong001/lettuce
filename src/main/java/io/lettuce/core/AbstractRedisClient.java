@@ -129,6 +129,7 @@ public abstract class AbstractRedisClient implements AutoCloseable {
             this.clientResources = clientResources;
         }
 
+        // DefaultChannelGroup 的底层通过一个 ConcurrentMap 集合来给管理所有的通道,并从计算线程池中获取一个线程来处理通道的事件
         this.channels = new DefaultChannelGroup(this.clientResources.eventExecutorGroup().next());
     }
 
@@ -279,6 +280,7 @@ public abstract class AbstractRedisClient implements AutoCloseable {
 
     /**
      * Populate connection builder with necessary resources.
+     * 用必要的资源填充connectionBuilder
      *
      * @param socketAddressSupplier address supplier for initial connect and re-connect
      * @param connectionBuilder connection builder to configure the connection
@@ -289,11 +291,16 @@ public abstract class AbstractRedisClient implements AutoCloseable {
     protected void connectionBuilder(Mono<SocketAddress> socketAddressSupplier, ConnectionBuilder connectionBuilder,
             ConnectionEvents connectionEvents, RedisURI redisURI) {
 
+        // 创建Netty客户端需要的Bootstrap对象，下面的主要过程其实都是在配置这个 Bootstrap
         Bootstrap redisBootstrap = new Bootstrap();
+        // 1、配置内存分配器，这里配置的是默认的内存分配器，即PooledByteBufAllocator.DEFAULT
         redisBootstrap.option(ChannelOption.ALLOCATOR, ByteBufAllocator.DEFAULT);
 
         connectionBuilder.bootstrap(redisBootstrap);
+        // 2、设置一个名为 RedisURI 的属性到 Bootstrap 中，这个属性最终会给到创建出来的Channel上
         connectionBuilder.apply(redisURI);
+        // 3、为这个Bootstrap配置Channel的类型，这里的Channel类型是NioSocketChannel
+        // 4、为这个Bootstrap配置EventLoopGroup，这里的EventLoopGroup是NioEventLoopGroup
         connectionBuilder.configureBootstrap(!LettuceStrings.isEmpty(redisURI.getSocket()), this::getEventLoopGroup);
         connectionBuilder.channelGroup(channels).connectionEvents(connectionEvents == this.connectionEvents ? connectionEvents
                 : ConnectionEvents.of(this.connectionEvents, connectionEvents));
@@ -318,13 +325,17 @@ public abstract class AbstractRedisClient implements AutoCloseable {
 
     private EventLoopGroup getEventLoopGroup(Class<? extends EventLoopGroup> eventLoopGroupClass) {
 
+        // 默认情况下， eventLoopGroup的类型是 NioEventLoopGroup
         for (;;) {
             if (!eventLoopGroupCas.compareAndSet(EVENTLOOP_ACQ_INACTIVE, EVENTLOOP_ACQ_ACTIVE)) {
                 continue;
             }
 
             try {
-
+                // eventLoopGroups是EventLoopGroup 的类型->EventLoopGroupProvider
+                // computeIfAbsent方法中指定的lambda表达式在没有key的情况下立即调用。其中：
+                // 1、clientResources默认的EventLoopGroupProvider是 DefaultEventLoopGroupProvider，所以调用的是 DefaultEventLoopGroupProvider 的 allocate 方法
+                // 2、DefaultEventLoopGroupProvider 的 allocate 方法中会根据传入的参数（即当前的key NioEventLoopGroup）创建一个 NioEventLoopGroup 对象
                 return eventLoopGroups.computeIfAbsent(eventLoopGroupClass,
                         it -> clientResources.eventLoopGroupProvider().allocate(it));
             } finally {
@@ -346,6 +357,7 @@ public abstract class AbstractRedisClient implements AutoCloseable {
     protected <T> T getConnection(ConnectionFuture<T> connectionFuture) {
 
         try {
+            // 异步转同步
             return connectionFuture.get();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -388,9 +400,11 @@ public abstract class AbstractRedisClient implements AutoCloseable {
     protected <K, V, T extends RedisChannelHandler<K, V>> ConnectionFuture<T> initializeChannelAsync(
             ConnectionBuilder connectionBuilder) {
 
+        // 订阅这个Mono可以返回用户在参数中指定的redis的地址和端口
         Mono<SocketAddress> socketAddressSupplier = connectionBuilder.socketAddress();
 
         if (clientResources.eventExecutorGroup().isShuttingDown()) {
+            // 计算线程池已经关闭，不能再创建新的连接了
             throw new IllegalStateException("Cannot connect, Event executor group is terminated.");
         }
 
@@ -404,18 +418,24 @@ public abstract class AbstractRedisClient implements AutoCloseable {
                 .start(new ConnectEvent(uriString, connectionBuilder.endpoint().getId()));
 
         channelReadyFuture.whenComplete((channel, throwable) -> {
+            // 连接就绪之后，产生一个ConnectEvent事件通知
             event.record();
         });
 
+        // 1、实际的创建连接的操作放在了这个Mono的subscribe方法中
+        // subscribe方法会阻塞当前线程，直到subscribe中的操作完成， 但是initializeChannelAsync0中的操作是异步的，也不会阻塞
         socketAddressSupplier.doOnError(socketAddressFuture::completeExceptionally).doOnNext(socketAddressFuture::complete)
                 .subscribe(redisAddress -> {
 
                     if (channelReadyFuture.isCancelled()) {
                         return;
                     }
+                    // 2、真正的创建连接的操作
                     initializeChannelAsync0(connectionBuilder, channelReadyFuture, redisAddress);
                 }, channelReadyFuture::completeExceptionally);
 
+        // 3、前面的subscribe方法是异步的，所以这里返回一个ConnectionFuture对象，用于同步等待连接的建立
+        // channelReadyFuture这个future会在连接就绪之后设置为完成。完成之后，下面的thenApply方法会执行，返回一个连接
         return new DefaultConnectionFuture<>(socketAddressFuture,
                 channelReadyFuture.thenApply(channel -> (T) connectionBuilder.connection()));
     }
@@ -425,12 +445,20 @@ public abstract class AbstractRedisClient implements AutoCloseable {
 
         logger.debug("Connecting to Redis at {}", redisAddress);
 
+        // 客户端的Bootstrap对象
         Bootstrap redisBootstrap = connectionBuilder.bootstrap();
 
+        // 1、向客户端的pipeline中添加handler定义
         ChannelInitializer<Channel> initializer = connectionBuilder.build(redisAddress);
         redisBootstrap.handler(initializer);
 
+        // 用户可以通过自己实现NettyCustomizer接口来针对redisBootstrap做一些额外的配置
         clientResources.nettyCustomizer().afterBootstrapInitialized(redisBootstrap);
+        // 2、连接到redis服务器，这个方法里面中几个关键操作
+        // 2.1、创建一个 NioSocketChannel 并找bootStrap中指定的配置进行初始化，包括创建这个channel对应的pipeline；
+        // 2.2、将前 redisBootstrap 中指定的handler添加到这个channel的pipeline中；
+        // 2.3、将当前的`NioSocketChannel`注册到`EventLoopGroup`中的某个`NioEventLoop`的`Selector`上,这样这个Selector就可以select到这个channel上发生的事件了。
+        // 2.4、调用 java nio的socketChannel.connect方法，实际连接远程地址。
         ChannelFuture connectFuture = redisBootstrap.connect(redisAddress);
 
         channelReadyFuture.whenComplete((c, t) -> {
@@ -466,6 +494,7 @@ public abstract class AbstractRedisClient implements AutoCloseable {
                 return;
             }
 
+            // 3、添加一个监听，在channel初始化完成的时候,让 channelReadyFuture 完成，这样外部就可以通过这个future来获取到channel了
             handshakeHandler.channelInitialized().whenComplete((success, throwable) -> {
 
                 if (throwable == null) {
@@ -473,6 +502,7 @@ public abstract class AbstractRedisClient implements AutoCloseable {
                     logger.debug("Connecting to Redis at {}: Success", redisAddress);
                     RedisChannelHandler<?, ?> connection = connectionBuilder.connection();
                     connection.registerCloseables(closeableResources, connection);
+                    // 4、channel初始化完成之后，将channelReadyFuture标记为完成,证明连接已经就绪了，并且指定这个channelReadyFuture的结果为创建的channel
                     channelReadyFuture.complete(channel);
                     return;
                 }

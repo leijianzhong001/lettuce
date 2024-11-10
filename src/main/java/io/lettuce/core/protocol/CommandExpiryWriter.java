@@ -75,6 +75,7 @@ public class CommandExpiryWriter implements RedisChannelWriter {
         LettuceAssert.notNull(clientResources, "ClientResources must not be null");
 
         TimeoutOptions timeoutOptions = clientOptions.getTimeoutOptions();
+        // DefaultEndpoint
         this.delegate = delegate;
         this.source = timeoutOptions.getSource();
         this.applyConnectionTimeout = timeoutOptions.isApplyConnectionTimeout();
@@ -122,6 +123,7 @@ public class CommandExpiryWriter implements RedisChannelWriter {
     public <K, V, T> RedisCommand<K, V, T> write(RedisCommand<K, V, T> command) {
 
         potentiallyExpire(command, getExecutorService());
+        // DefaultEndpoint
         return delegate.write(command);
     }
 

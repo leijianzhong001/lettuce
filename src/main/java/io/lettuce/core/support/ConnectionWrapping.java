@@ -45,14 +45,15 @@ public class ConnectionWrapping {
      */
     @SuppressWarnings({ "unchecked", "rawtypes" })
     static <T> T wrapConnection(T connection, Origin<T> pool) {
-
+        // connection的实现是 StatefulRedisConnectionImpl
+        // 所有针对 connection 的连接池操作都会被代理到 ReturnObjectOnCloseInvocationHandler 类中
         ReturnObjectOnCloseInvocationHandler<T> handler = new ReturnObjectOnCloseInvocationHandler<T>(connection, pool);
 
         Class<?>[] implementedInterfaces = connection.getClass().getInterfaces();
         Class[] interfaces = new Class[implementedInterfaces.length + 1];
         interfaces[0] = HasTargetConnection.class;
         System.arraycopy(implementedInterfaces, 0, interfaces, 1, implementedInterfaces.length);
-
+        // 为连接创建代理对象，以方便的在连接关闭时将连接返回到连接池
         T proxiedConnection = (T) Proxy.newProxyInstance(connection.getClass().getClassLoader(), interfaces, handler);
         handler.setProxiedConnection(proxiedConnection);
 
@@ -82,6 +83,7 @@ public class ConnectionWrapping {
         }
 
         void setProxiedConnection(T proxiedConnection) {
+            // 创建出来的代理对象
             this.proxiedConnection = proxiedConnection;
         }
 
@@ -101,6 +103,7 @@ public class ConnectionWrapping {
             }
 
             if (method.getName().equals("close")) {
+                // 这里，这里会对从连接池中借出的连接的close方法进行代理，实际操作从关闭channel变成了将连接返回到连接池
                 pool.returnObject(proxiedConnection);
                 connection = null;
                 proxiedConnection = null;
@@ -109,6 +112,7 @@ public class ConnectionWrapping {
             }
 
             if (method.getName().equals("closeAsync")) {
+                // 这里也是对连接关闭的方法进行代理，实际操作是将连接返回到连接池
                 CompletableFuture<Void> future = pool.returnObjectAsync(proxiedConnection);
                 connection = null;
                 proxiedConnection = null;

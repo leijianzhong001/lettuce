@@ -82,6 +82,11 @@ public class RedisHandshakeHandler extends ChannelInboundHandlerAdapter {
     @Override
     public void channelActive(ChannelHandlerContext ctx) {
 
+        // 1、主要逻辑就是使用这个方法初始化连接, 主要包括：
+        // 1.1、ping命令检测连通性；
+        // 1.2、select 命令选择数据库；
+        // 1.3、client setname 命令设置客户端名称；
+        // 1.4、client setinfo 命令设置客户端库的名称和版本
         CompletionStage<Void> future = connectionInitializer.initialize(ctx.channel());
 
         future.whenComplete((ignore, throwable) -> {

@@ -229,7 +229,8 @@
             <groupId>io.netty</groupId>
             <artifactId>netty-tcnative</artifactId>
             <version>2.0.65.Final</version>
-            <classifier>${os.detected.classifier}</classifier>
+            <!-- 这里 ${os.detected.classifier} 在windows下会解析成windows-x86_64.jar，而实际上没有这个jar包，所以会导致失败，这里直接写成linux下的解决问题 -->
+            <classifier>linux-x86_64</classifier>
             <optional>true</optional>
         </dependency>
 

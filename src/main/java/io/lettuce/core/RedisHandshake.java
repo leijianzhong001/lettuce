@@ -89,6 +89,7 @@ class RedisHandshake implements ConnectionInitializer {
 
         CompletionStage<?> handshake;
 
+        // 1、按照指定的协议发送一个ping命令，主要是为了检测连通性和服务是否正常
         if (this.requestedProtocolVersion == ProtocolVersion.RESP2) {
             handshake = initializeResp2(channel);
             negotiatedProtocolVersion = ProtocolVersion.RESP2;
@@ -103,11 +104,13 @@ class RedisHandshake implements ConnectionInitializer {
 
         // post-handshake commands, whose execution failures would cause the connection to be considered
         // unsuccessfully established
+        // 2、设置数据库db以及是否打开readonly(cluster模式)，如果设置了数据库的db，则这里会通过select命令选择对应的数据库
         CompletableFuture<Void> postHandshake = applyPostHandshake(channel);
 
         // post-handshake commands, executed in a 'fire and forget' manner, to avoid having to react to different
         // implementations or versions of the server runtime, and whose execution result (whether a success or a
         // failure ) should not alter the outcome of the connection attempt
+        // 3、设置 clientname, libname 和 libver，这写个属性会显示在 CLIENT LIST 和 CLIENT INFO 的输出中
         CompletableFuture<Void> connectionMetadata = applyConnectionMetadata(channel).handle((result, error) -> {
             if (error != null) {
                 LOG.debug("Error applying connection metadata", error);
@@ -115,6 +118,7 @@ class RedisHandshake implements ConnectionInitializer {
             return null;
         });
 
+        // ping握手完成之后，会执行postHandshake和connectionMetadata这两个future
         return handshake.thenCompose(ignore -> postHandshake).thenCompose(ignore -> connectionMetadata);
     }
 
@@ -256,6 +260,8 @@ class RedisHandshake implements ConnectionInitializer {
 
         List<AsyncCommand<?, ?, ?>> postHandshake = new ArrayList<>();
 
+        // connectionState中的设置会随着命令的执行发生变化，比如执行select 0命令之后，其db字段会被设置为0
+        // READONLY 命令执行之后，readOnly字段会被设置为true
         if (connectionState.getDb() > 0) {
             postHandshake.add(new AsyncCommand<>(this.commandBuilder.select(connectionState.getDb())));
         }
@@ -275,14 +281,20 @@ class RedisHandshake implements ConnectionInitializer {
 
         List<AsyncCommand<?, ?, ?>> postHandshake = new ArrayList<>();
 
+        // 默认会使用 redisURI 中的信息来初始化 ConnectionMetadata 对象
         ConnectionMetadata metadata = connectionState.getConnectionMetadata();
         ProtocolVersion negotiatedProtocolVersion = getNegotiatedProtocolVersion();
 
+        // 设置客户端名称
         if (metadata.getClientName() != null && negotiatedProtocolVersion == ProtocolVersion.RESP2) {
             postHandshake.add(new AsyncCommand<>(this.commandBuilder.clientSetname(connectionState.getClientName())));
         }
 
+        // 设置客户端信息 libname 和 libver， CLIENT SETINFO命令为当前连接分配各种信息属性，这些属性显示在CLIENT LIST和CLIENT info的输出中。
         if (LettuceStrings.isNotEmpty(metadata.getLibraryName())) {
+            // CLIENT SETINFO <LIB-NAME libname | LIB-VER libver>
+            //  lib-name - 意在保存正在使用的客户端库的名称。
+            //  lib-ver - 意在保存客户端库的版本。
             postHandshake.add(new AsyncCommand<>(this.commandBuilder.clientSetinfo("lib-name", metadata.getLibraryName())));
         }
 

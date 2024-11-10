@@ -726,6 +726,7 @@ public abstract class AbstractRedisAsyncCommands<K, V> implements RedisAclAsyncC
     }
 
     public <T> AsyncCommand<K, V, T> dispatch(RedisCommand<K, V, T> cmd) {
+        // 请求参数是一个 Command 类型。Command对象主要包含三个方面：命令、参数、返回值
         AsyncCommand<K, V, T> asyncCommand = new AsyncCommand<>(cmd);
         RedisCommand<K, V, T> dispatched = connection.dispatch(asyncCommand);
         if (dispatched instanceof AsyncCommand) {

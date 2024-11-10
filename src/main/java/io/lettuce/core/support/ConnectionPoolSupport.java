@@ -103,13 +103,16 @@ public abstract class ConnectionPoolSupport {
 
             @Override
             public T borrowObject() throws Exception {
+                // 重写连接池的 borrowObject 方法，这样实际上借出的连接就是包装过的连接。wrapConnections 默认为 true
+                // 注意这个地方的实现非常巧妙，实际上借出对象的操作还是使用了父类的 borrowObject 方法，只是在借出的对象的基础上创建了一个代理对象返回
+                // 所有对该代理对象的调用都会被代理到 ReturnObjectOnCloseInvocationHandler 中的 invoke 方法中
                 return wrapConnections ? ConnectionWrapping.wrapConnection(super.borrowObject(), poolRef.get())
                         : super.borrowObject();
             }
 
             @Override
             public void returnObject(T obj) {
-
+                // 重写归还连接的方法，默认情况下， wrapConnections 为 true，包装以后得连接都有 HasTargetConnection 这个父接口
                 if (wrapConnections && obj instanceof HasTargetConnection) {
                     super.returnObject((T) ((HasTargetConnection) obj).getTargetConnection());
                     return;

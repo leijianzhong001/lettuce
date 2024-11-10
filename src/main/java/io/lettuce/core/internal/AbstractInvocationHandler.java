@@ -159,17 +159,19 @@ public abstract class AbstractInvocationHandler implements InvocationHandler {
 
     protected static class MethodTranslator {
 
+        // 采用弱引用，这样就避免了该集合中的代理对象不在使用的时候，不需要手动清理该集合中的对象
         private static final WeakHashMap<Class<?>, MethodTranslator> TRANSLATOR_MAP = new WeakHashMap<>(32);
 
         private final Map<Method, Method> map;
 
         private MethodTranslator(Class<?> delegate, Class<?>... methodSources) {
-
+            // 生成 原始方法->代理对象方法的映射
             map = createMethodMap(delegate, methodSources);
         }
 
         public static MethodTranslator of(Class<?> delegate, Class<?>... methodSources) {
 
+            // methodSources虽然实际上是 RedisCommands.class, RedisClusterCommands.class，但这个命名还是恰如其分的，因为可以铜鼓哦这两个接口来获得可以代理的方法列表
             synchronized (TRANSLATOR_MAP) {
                 return TRANSLATOR_MAP.computeIfAbsent(delegate, key -> new MethodTranslator(key, methodSources));
             }
@@ -180,6 +182,7 @@ public abstract class AbstractInvocationHandler implements InvocationHandler {
             Map<Method, Method> map;
             List<Method> methods = new ArrayList<>();
             for (Class<?> sourceClass : methodSources) {
+                // 1、获取此类的所有公共方法
                 methods.addAll(getMethods(sourceClass));
             }
 
@@ -188,6 +191,7 @@ public abstract class AbstractInvocationHandler implements InvocationHandler {
             for (Method method : methods) {
 
                 try {
+                    // 2、生成 原始方法->代理对象方法的映射，这样避免每次都遍历被代理对象（异步api）的方法列表
                     map.put(method, delegate.getMethod(method.getName(), method.getParameterTypes()));
                 } catch (NoSuchMethodException ignore) {
                 }
@@ -202,11 +206,14 @@ public abstract class AbstractInvocationHandler implements InvocationHandler {
             Class<?> searchType = sourceClass;
             while (searchType != null && searchType != Object.class) {
 
+                // 过滤出所有的public方法
                 result.addAll(filterPublicMethods(Arrays.asList(sourceClass.getDeclaredMethods())));
 
                 if (sourceClass.isInterface()) {
+                    // 获取父接口列表
                     Class<?>[] interfaces = sourceClass.getInterfaces();
                     for (Class<?> interfaceClass : interfaces) {
+                        // 同样获取父接口方法列表
                         result.addAll(getMethods(interfaceClass));
                     }
 

@@ -141,10 +141,16 @@ public class DefaultClientResources implements ClientResources {
 
     private final boolean sharedEventLoopGroupProvider;
 
+    /**
+     * 用于根据指定的EventLoopGroup类型创建响应类型的EventLoopGroup对象，比如NioEventLoopGroup就会创建 NioEventLoopGroup 对象
+     */
     private final EventLoopGroupProvider eventLoopGroupProvider;
 
     private final boolean sharedEventExecutor;
 
+    /**
+     * 计算线程池
+     */
     private final EventExecutorGroup eventExecutorGroup;
 
     private final MetricEventPublisher metricEventPublisher;
@@ -173,6 +179,7 @@ public class DefaultClientResources implements ClientResources {
         threadFactoryProvider = builder.threadFactoryProvider;
 
         if (builder.eventLoopGroupProvider == null) {
+            // io线程数量默认也是当前CPU的数量
             int ioThreadPoolSize = builder.ioThreadPoolSize;
 
             if (ioThreadPoolSize < MIN_IO_THREADS) {
@@ -182,6 +189,7 @@ public class DefaultClientResources implements ClientResources {
             }
 
             this.sharedEventLoopGroupProvider = false;
+            // 如果不特别指定的话，所有的EventLoopGroup都是由这个类提供的
             this.eventLoopGroupProvider = new DefaultEventLoopGroupProvider(ioThreadPoolSize, threadFactoryProvider);
 
         } else {
@@ -190,6 +198,7 @@ public class DefaultClientResources implements ClientResources {
         }
 
         if (builder.eventExecutorGroup == null) {
+            // 计算线程数量默认也是当前CPU的数量
             int computationThreadPoolSize = builder.computationThreadPoolSize;
             if (computationThreadPoolSize < MIN_COMPUTATION_THREADS) {
 
@@ -198,6 +207,7 @@ public class DefaultClientResources implements ClientResources {
                 computationThreadPoolSize = MIN_COMPUTATION_THREADS;
             }
 
+            // 计算线程池
             eventExecutorGroup = DefaultEventLoopGroupProvider.createEventLoopGroup(DefaultEventExecutorGroup.class,
                     computationThreadPoolSize, threadFactoryProvider);
             sharedEventExecutor = false;

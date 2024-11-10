@@ -322,6 +322,7 @@ public class CommandHandler extends ChannelDuplexHandler implements HasQueuedCom
 
         tracedEndpoint = clientResources.tracing().createEndpoint(ctx.channel().remoteAddress());
 
+        // 1、注意这个地方，在channel被激活的时候，将channel注册到endpoint中，后面所有的写操作都可以通过endpoint来进行
         endpoint.notifyChannelActive(ctx.channel());
         super.channelActive(ctx);
 
@@ -392,6 +393,7 @@ public class CommandHandler extends ChannelDuplexHandler implements HasQueuedCom
         }
 
         if (msg instanceof RedisCommand) {
+            // 1、默认实现是 RedisCommand ，所以走这里
             writeSingleCommand(ctx, (RedisCommand<?, ?, ?>) msg, promise);
             return;
         }
@@ -418,14 +420,19 @@ public class CommandHandler extends ChannelDuplexHandler implements HasQueuedCom
     private void writeSingleCommand(ChannelHandlerContext ctx, RedisCommand<?, ?, ?> command, ChannelPromise promise) {
 
         if (!isWriteable(command)) {
+            // 如果命令已经完成，则直接返回
             promise.trySuccess();
             return;
         }
 
+        // 1、将命令添加到请求队列中，用于记录请求以在必要的时候可以自动重发
         addToStack(command, promise);
 
+        // 2、Zipkin 是一个分布式链路追踪系统（distributed tracing system）。它可以收集并展示一个 HTTP 请求从开始到最终返回结果之间完整的调用链。
+        // 通过这个方法，可以将命令与 Zipkin 进行关联，用于记录命令的延迟和调用链
         attachTracing(ctx, command);
 
+        // 3、从这里开始，调用下一个出站的handler
         ctx.write(command, promise);
     }
 
@@ -510,6 +517,7 @@ public class CommandHandler extends ChannelDuplexHandler implements HasQueuedCom
         try {
 
             if (!ActivationCommand.isActivationCommand(command)) {
+                // 1、默认情况下会走这里，因为 AsyncCommand 不是 ActivationCommand
                 validateWrite(1);
             }
 
@@ -518,8 +526,9 @@ public class CommandHandler extends ChannelDuplexHandler implements HasQueuedCom
                 complete(command);
             }
 
+            // 2、将 AsyncCommand 包装为一个 LatencyMeteredCommand， 以记录命令延迟
             RedisCommand<?, ?, ?> redisCommand = potentiallyWrapLatencyCommand(command);
-
+            // 3、将命令添加到请求队列中
             stack.add(redisCommand);
             if (!promise.isVoid()) {
                 promise.addListener(AddToStack.newInstance(stack, redisCommand));
@@ -554,12 +563,14 @@ public class CommandHandler extends ChannelDuplexHandler implements HasQueuedCom
 
     private RedisCommand<?, ?, ?> potentiallyWrapLatencyCommand(RedisCommand<?, ?, ?> command) {
 
+
         if (!latencyMetricsEnabled) {
             return command;
         }
+        // 默认情况下，latencyMetricsEnabled为true, 所以会记录延迟，往下走
 
         if (command instanceof WithLatency) {
-
+            // AsyncCommand 并未实现WithLatency接口，所以不会走这个分支
             WithLatency withLatency = (WithLatency) command;
 
             withLatency.firstResponse(-1);
@@ -568,9 +579,10 @@ public class CommandHandler extends ChannelDuplexHandler implements HasQueuedCom
             return command;
         }
 
+        // 1、AsyncCommand 使用 LatencyMeteredCommand 包装一下，用于记录命令延迟
         LatencyMeteredCommand<?, ?, ?> latencyMeteredCommand = new LatencyMeteredCommand<>(command);
-        latencyMeteredCommand.firstResponse(-1);
-        latencyMeteredCommand.sent(nanoTime());
+        latencyMeteredCommand.firstResponse(-1); // 第一次响应时间先设置为-1
+        latencyMeteredCommand.sent(nanoTime()); // 记录一下命令的发送时间
 
         return latencyMeteredCommand;
     }

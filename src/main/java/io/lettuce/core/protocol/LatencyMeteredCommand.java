@@ -8,10 +8,13 @@ package io.lettuce.core.protocol;
  */
 class LatencyMeteredCommand<K, V, T> extends CommandWrapper<K, V, T> implements WithLatency {
 
+    // 1、记录发送时间
     private long sentNs = -1;
 
+    // 2、记录第一次响应时间
     private long firstResponseNs = -1;
 
+    // 3、记录完成时间
     private long completedNs = -1;
 
     public LatencyMeteredCommand(RedisCommand<K, V, T> command) {

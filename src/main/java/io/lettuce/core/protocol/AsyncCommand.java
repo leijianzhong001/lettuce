@@ -186,6 +186,7 @@ public class AsyncCommand<K, V, T> extends CompletableFuture<T>
 
     @Override
     public void encode(ByteBuf buf) {
+        // 默认调用的是Command的encode方法
         command.encode(buf);
     }
 

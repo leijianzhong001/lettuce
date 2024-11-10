@@ -2547,7 +2547,7 @@ class RedisCommandBuilder<K, V> extends BaseRedisCommandBuilder<K, V> {
 
     Command<K, V, String> set(K key, V value, SetArgs setArgs) {
         notNullKey(key);
-
+        // 这里的codec默认情况下是 StringCodec.UTF8
         CommandArgs<K, V> args = new CommandArgs<>(codec).addKey(key).addValue(value);
         setArgs.build(args);
         return createCommand(SET, new StatusOutput<>(codec), args);

@@ -57,6 +57,7 @@ public class BaseRedisCommandBuilder<K, V> {
     }
 
     protected <T> Command<K, V, T> createCommand(CommandType type, CommandOutput<K, V, T> output, CommandArgs<K, V> args) {
+        // Command对象主要包含三个方面，命令、参数、返回值
         return new Command<>(type, output, args);
     }
 

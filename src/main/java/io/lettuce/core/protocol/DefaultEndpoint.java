@@ -195,7 +195,7 @@ public class DefaultEndpoint implements RedisChannelWriter, Endpoint, PushHandle
             }
 
             if (autoFlushCommands) {
-
+                // 默认情况下 autoFlushCommands 是打开的
                 if (isConnected()) {
                     writeToChannelAndFlush(command);
                 } else {
@@ -229,6 +229,7 @@ public class DefaultEndpoint implements RedisChannelWriter, Endpoint, PushHandle
         }
 
         try {
+            // 这里递增一下正在该连接上进行的写入操作的数量，会加锁
             sharedLock.incrementWriters();
 
             if (inActivation) {
@@ -289,7 +290,7 @@ public class DefaultEndpoint implements RedisChannelWriter, Endpoint, PushHandle
         }
 
         if (usesBoundedQueues()) {
-
+            // 如果不是无界队列的话，这里校验一下当前队列中的命令数量是否超过了最大值
             boolean connected = isConnected();
 
             if (QUEUE_SIZE.get(this) + commands > clientOptions.getRequestQueueSize()) {
@@ -371,9 +372,9 @@ public class DefaultEndpoint implements RedisChannelWriter, Endpoint, PushHandle
     }
 
     private void writeToChannelAndFlush(RedisCommand<?, ?, ?> command) {
-
+        // 1、递增请求队列的数量，这样可以在后续的校验中知道当前队列中的命令数量
         QUEUE_SIZE.incrementAndGet(this);
-
+        // 2、写出到Redis服务端, 重要的是写出过程中的handler链
         ChannelFuture channelFuture = channelWriteAndFlush(command);
 
         if (reliability == Reliability.AT_MOST_ONCE) {
@@ -441,6 +442,7 @@ public class DefaultEndpoint implements RedisChannelWriter, Endpoint, PushHandle
     public void notifyChannelActive(Channel channel) {
 
         this.logPrefix = null;
+        // 1、注意这个地方，DefaultEndpoint的在这里获得了实际被激活的channel
         this.channel = channel;
         this.connectionError = null;
 

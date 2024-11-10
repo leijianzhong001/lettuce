@@ -164,9 +164,9 @@ public class StatefulRedisConnectionImpl<K, V> extends RedisChannelHandler<K, V>
 
     @Override
     public <T> RedisCommand<K, V, T> dispatch(RedisCommand<K, V, T> command) {
-
+        // 1、对一些特定的命令进行预处理, 如AUTH、SELECT、READONLY、READWRITE、DISCARD、EXEC
         RedisCommand<K, V, T> toSend = preProcessCommand(command);
-
+        // 对于MULTI命令潜在的启用事务
         potentiallyEnableMulti(command);
 
         return super.dispatch(toSend);
@@ -208,6 +208,7 @@ public class StatefulRedisConnectionImpl<K, V> extends RedisChannelHandler<K, V>
         RedisCommand<K, V, T> local = command;
 
         if (local.getType().toString().equals(AUTH.name())) {
+            // 1、attachOnComplete方法用于对 CompleteableCommand 类型的命令附加指定的回调函数
             local = attachOnComplete(local, status -> {
                 if ("OK".equals(status)) {
 

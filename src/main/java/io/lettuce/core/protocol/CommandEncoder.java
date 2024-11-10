@@ -60,6 +60,7 @@ public class CommandEncoder extends MessageToByteEncoder<Object> {
         out.touch("CommandEncoder.encode(…)");
         if (msg instanceof RedisCommand) {
             RedisCommand<?, ?, ?> command = (RedisCommand<?, ?, ?>) msg;
+            // 1、对 LatencyMeteredCommand 进行编码
             encode(ctx, out, command);
         }
 
@@ -74,9 +75,12 @@ public class CommandEncoder extends MessageToByteEncoder<Object> {
     private void encode(ChannelHandlerContext ctx, ByteBuf out, RedisCommand<?, ?, ?> command) {
 
         try {
+            // 使用这个方法标记writeIndex之后，可以通过resetWriterIndex()方法将writeIndex重置为标记的位置
             out.markWriterIndex();
+            // 1、可以看到，实际的编码过程是发生在RedisCommand中的
             command.encode(out);
         } catch (RuntimeException e) {
+            // 发生异常时重置标记的位置
             out.resetWriterIndex();
             command.completeExceptionally(new EncoderException(
                     "Cannot encode command. Please close the connection as the connection state may be out of sync.", e));

@@ -34,9 +34,10 @@ class SharedLock {
 
     /**
      * Wait for stateLock and increment writers. Will wait if stateLock is locked and if writer counter is negative.
+     * 等待stateLock和增量writers。如果stateLock被锁定并且写入器计数器为负，则将等待。
      */
     void incrementWriters() {
-
+        // 可重入，所以如果是当前线程持有了锁，直接返回
         if (exclusiveLockOwner == Thread.currentThread()) {
             return;
         }
@@ -44,12 +45,17 @@ class SharedLock {
         lock.lock();
         try {
             for (;;) {
-
+                // writers 是一个long类型，通过 AtomicLongFieldUpdater 来原子递增
+                // this是当前 ShardLock 对象，一般而言，同一个连接的所有操作都是在同一个SharedLock对象上进行的
+                // 获取 WRITERS 上保存的当前ShardLock对象的值，
                 if (WRITERS.get(this) >= 0) {
+                    // 递增一次写入
                     WRITERS.incrementAndGet(this);
+                    // 将最新的写入计数结果保存到 threadWriters 中，这是个ThreadLocal
                     threadWriters.set(threadWriters.get() + 1);
                     return;
                 }
+                // 如果WRITERS.get返回负数，说明有线程持有了排他锁，当前线程需要等待
             }
         } finally {
             lock.unlock();

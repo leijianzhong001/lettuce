@@ -162,15 +162,18 @@ public abstract class AsyncConnectionPoolSupport {
         LettuceAssert.notNull(config, "BoundedPoolConfig must not be null");
 
         AtomicReference<Origin<T>> poolRef = new AtomicReference<>();
-
+        // 一个内置的连接池
+        // RedisPooledObjectFactory 提供了连接的创建、销毁、校验等操作
         BoundedAsyncPool<T> pool = new BoundedAsyncPool<T>(new RedisPooledObjectFactory<T>(connectionSupplier), config, false) {
 
+            // 从连接池中借出一个连接
             @Override
             public CompletableFuture<T> acquire() {
-
+                // 1、先调用父类的 acquire 方法，获取一个未经过包装的连接，此方法中如果没有空闲连接，会调用连接工厂的 create 方法来获得一个连接
                 CompletableFuture<T> acquire = super.acquire();
 
                 if (wrapConnections) {
+                    // 默认会使用包装的连接，所以这里会对连接进行包装。wrapConnection 方法和同步连接池中的 wrapConnection 方法并无不同
                     return acquire.thenApply(it -> ConnectionWrapping.wrapConnection(it, poolRef.get()));
                 }
 
@@ -182,6 +185,7 @@ public abstract class AsyncConnectionPoolSupport {
             public CompletableFuture<Void> release(T object) {
 
                 if (wrapConnections && object instanceof HasTargetConnection) {
+                    // 重写归还连接的方法，默认情况下， wrapConnections 为 true，包装以后得连接都有 HasTargetConnection 这个父接口，所以走这里。
                     return super.release((T) ((HasTargetConnection) object).getTargetConnection());
                 }
 

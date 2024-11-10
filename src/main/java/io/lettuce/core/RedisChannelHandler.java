@@ -200,6 +200,7 @@ public abstract class RedisChannelHandler<K, V> implements Closeable, Connection
             return channelWriter.write(commandToSend);
         }
 
+        // 实际写出走这里
         return channelWriter.write(cmd);
     }
 
@@ -334,7 +335,16 @@ public abstract class RedisChannelHandler<K, V> implements Closeable, Connection
 
     @SuppressWarnings("unchecked")
     protected <T> T syncHandler(Object asyncApi, Class<?>... interfaces) {
+        // asyncApi就是 StatefulRedisConnectionImpl.async对象，其实现是 RedisAsyncCommandsImpl
+        // 所以，所谓的同步api，其实是异步api的一个代理对象
         FutureSyncInvocationHandler h = new FutureSyncInvocationHandler((StatefulConnection<?, ?>) this, asyncApi, interfaces);
+        // newProxyInstance 方法参数解释如下：
+        //  loader: 一个ClassLoader对象，定义了由哪个ClassLoader对象来对生成的代理对象进行加载
+        //  interfaces: 一个Interface对象的数组，表示的是我将要给我需要代理的对象提供一组什么接口，如果我提供了一组接口给它，
+        //              那么这个代理对象就宣称实现了该接口(多态)，这样我就能调用这组接口中的方法了
+        //  h: 一个InvocationHandler对象，表示的是当我这个动态代理对象在调用方法的时候，会关联到哪一个InvocationHandler对象上。
+        //      每个动态代理类都必须实现InvocationHandler接口，并且每个代理类的实例都关联到了一个handler，当我们通过代理对象调用一个方法的时候，
+        //      这个方法的调用就会被转发为由InvocationHandler接口的invoke方法来进行调用。
         return (T) Proxy.newProxyInstance(AbstractRedisClient.class.getClassLoader(), interfaces, h);
     }
 
